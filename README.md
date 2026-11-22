@@ -104,39 +104,3 @@ clicks, same-millisecond ties, quoting, malformed lines, `\r`). It is not the
 official generator, so `check-dev` remains the ground truth. The two test
 oracles are deliberately independent. When they disagree, read rules.md and work
 out which one is wrong. Once, during development, it was the synthesizer.
-
-## Before you submit
-
-1. `make test fixtures-local synth-check` all green.
-2. `make dev run-dev check-dev` prints `MATCH`, and the time is well under 15 s.
-   The stderr log shows each stage's time.
-3. `make build fixtures` passes through Docker on linux/amd64.
-4. Push to a public GitHub repo. No data is committed: `.gitignore` excludes
-   dev/, out/, synth/ and target/.
-
-## Measured so far
-
-These were measured in a 1-core sandbox without Docker, so they are only
-indicative. 3.4M synthetic event lines (307 MB) take 1.5 s end to end: parsing
-1.0 s, dedup 0.2 s, sessionize 0.25 s. Scaling that to 60M events on 8 vCPUs
-suggests single-digit seconds, far inside the 3-minute cap. Peak memory at
-final size should be around 7 GB, plus page cache.
-
-## Where to find more speed
-
-Measure on `make run-dev` first. Parsing dominates, so these come in roughly
-that order:
-
-* **Faster line/field scanning.** Find `\n`, `,` and `"` with SIMD over the
-  whole chunk (memchr3 or AVX2 bitmasks) instead of a per-byte loop.
-* **Overlap links with parsing.** Store the uid hash in the parsed record and
-  resolve the person in the dedup stage, so union-find runs while events parse.
-* **Smaller records.** `Ev` is 64 B. Pack price and category, and keep the uid
-  pointer only for persons with no link entry, to cut memory bandwidth in the
-  two shuffles.
-* **Radix sort** by (person, ts) instead of comparison sort in stage 5.
-* `-C target-cpu=x86-64-v3` (AVX2) in the Dockerfile's build stage. The scorers
-  are Cascade Lake or newer, but keep a fallback for arm64 local builds.
-* Huge pages or `MAP_POPULATE`, if page faults show up in a profile.
-
-Re-run `make fixtures-local synth-check check-dev` after every optimization.
